@@ -1,11 +1,11 @@
 # opensteamtool.toml — OpenSteamTool configuration
 # Place at: <Steam>/opensteamtool.toml
-# This file is read once at startup. Restart Steam after changes.
+# This file is loaded at startup and hot-reloaded after changes.
 
 [log]
 # Log verbosity for all log files (Debug build only).
 # Valid: trace, debug, info, warn, error
-level = "info"
+level = "debug"
 
 [manifest]
 # Which upstream API to query for depot manifest request codes.
@@ -64,6 +64,13 @@ timeout_recv_ms    = 10000
 #   paths = ["D:/my-steam-config/lua"]
 [lua]
 # paths = []
+
+[inject]
+# Optional library injection into game processes.
+# The injected library must match the target process architecture.
+enabled = false
+# library_x64 = "OpenSteamTool.GameHook.x64.dll"
+# library_x86 = "OpenSteamTool.GameHook.x86.dll"
 
 [remote]
 # Optional metadata mirror. Leave unset to use GitHub with jsDelivr fallback.

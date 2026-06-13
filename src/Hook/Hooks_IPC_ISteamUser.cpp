@@ -1,8 +1,10 @@
 #include "Hooks_IPC.h"
 #include "Hooks_IPC_ISteamUser.h"
 #include "PendingAPICalls.h"
-#include "Utils/AppTicket.h"
-#include "Utils/Log.h"
+#include "Utils/Tickets/AppTicket.h"
+#include "Pipe/PipeManager.h"
+#include "Pipe/Features/DenuvoAuth/DenuvoAuth.h"
+#include "Utils/Logging/Log.h"
 #include "Hooks_Misc.h"
 
 namespace {
@@ -12,14 +14,20 @@ namespace {
     void HandlerPost_IClientUser_GetSteamID(CPipeClient* pipe,CUtlBuffer* pRead, CUtlBuffer* pWrite)
     {
         AppId_t appId = Hooks_Misc::ResolveAppId();
+        GetSteamIDResp resp{pWrite};
+        if (!resp.ok()) return;
+
+        if (!PipeManager::DenuvoAuth::IsAuthorizedPipe(pipe)) {
+            LOG_IPC_TRACE("IClientUser::GetSteamID: AppId={} not in authorization window, skip spoofing", appId);
+            return;
+        }
+
         const uint64 spoofed = AppTicket::GetSpoofSteamID(appId);
         if (!spoofed) {
             LOG_IPC_WARN("IClientUser::GetSteamID: AppId={} no valid steamid - cannot spoof", appId);
             return;
         }
 
-        GetSteamIDResp resp{pWrite};
-        if (!resp.ok()) return;
         LOG_IPC_DEBUG("IClientUser::GetSteamID: AppId={} Original: {} -> Spoofed: 0x{:X}({})", 
                         appId,resp.DebugString(),spoofed, spoofed);
         resp.set_returnValue(spoofed);
@@ -37,7 +45,15 @@ namespace {
         AppTicket::AppOwnershipTicket ticket{};
         AppId_t appId = req.unAppID() == kOnlineFixAppId ? Hooks_Misc::ResolveAppId() : req.unAppID();
         
-        if (!AppTicket::GetAppOwnershipTicket(appId, ticket)) return;
+        AppTicket::AppTicketSource ticketSource;
+        if (PipeManager::DenuvoAuth::IsAuthorizedPipe(pipe)) {
+            ticketSource = AppTicket::AppTicketSource::CredentialStoreOnly;
+        } else {
+            LOG_IPC_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} not in authorization window, only forge available", appId);
+            ticketSource = AppTicket::AppTicketSource::ForgeOnly;
+        }        
+        if (!AppTicket::GetAppOwnershipTicket(appId, ticket, ticketSource)) return;
+
         if (ticket.data.size() > static_cast<size_t>(req.cbMaxTicket())) {
             LOG_IPC_WARN("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} ticket too large ({} bytes) for buffer ({} bytes)",
                          appId, ticket.data.size(), req.cbMaxTicket());
@@ -67,7 +83,7 @@ namespace {
         if (!resp.ok()) return;
 
         AppId_t appId = Hooks_Misc::ResolveAppId();
-        std::vector<uint8_t> ticket = AppTicket::GetEncryptedTicketFromRegistry(appId);
+        std::vector<uint8_t> ticket = AppTicket::GetEncryptedTicketFromCredentialStore(appId);
         if (ticket.empty()) {
             LOG_IPC_DEBUG("RequestEncryptedAppTicket: AppId={} - no cached eticket, skip", appId);
             return;
@@ -83,7 +99,7 @@ namespace {
     void HandlerPost_IClientUser_GetEncryptedAppTicket(CPipeClient* pipe, CUtlBuffer* pRead, CUtlBuffer* pWrite)
     {
         AppId_t appId = Hooks_Misc::ResolveAppId();
-        std::vector<uint8_t> ticket = AppTicket::GetEncryptedTicketFromRegistry(appId);
+        std::vector<uint8_t> ticket = AppTicket::GetEncryptedTicketFromCredentialStore(appId);
         if (ticket.empty()) {
             LOG_IPC_DEBUG("GetEncryptedAppTicket: AppId={} - no cached eticket, skip", appId);
             return;

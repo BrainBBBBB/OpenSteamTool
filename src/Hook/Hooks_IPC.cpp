@@ -4,8 +4,9 @@
 #include "Hooks_IPC_ISteamUtils.h"
 #include "HookMacros.h"
 #include "Hooks_Misc.h"
-#include "Utils/Hash.h"
-#include "Utils/IPCLoader.h"
+#include "Pipe/PipeManager.h"
+#include "Utils/Support/FnvHash.h"
+#include "Utils/SteamMetadata/IPCLoader.h"
 
 namespace {
 
@@ -84,17 +85,35 @@ namespace {
         dispatch.handler = FindHandler(call.interfaceID(), call.funcHash());
         if (!dispatch.handler) return dispatch;
 
-        LOG_IPC_DEBUG("Resolved IPC handler: {}", dispatch.DebugString());
+        LOG_IPC_TRACE("Resolved IPC handler: {}", dispatch.DebugString());
         return dispatch;
+    }
+
+    static void HandleHandshake(void* pServer, HSteamPipe hSteamPipe,CUtlBuffer* pRead)
+    {
+        IPCMessages::IPCRequest request{pRead};
+        if (!request.ok()|| request.command() != EIPCCommand::Handshake) return;
+        IPCMessages::IPCHandshakeReq handshake{request.body()};
+        if(!handshake.ok()) return;
+
+        CPipeClient* pipe = GetPipe(pServer, hSteamPipe);
+        if (!pipe) return;
+        // set client PID 
+        pipe->m_clientPID = handshake.pid();
+
+        LOG_IPC_DEBUG("Received handshake from {},{}", pipe->DebugString(), handshake.DebugString());
+        PipeManager::OnHandshake(pipe);
     }
 
     HOOK_FUNC(IPCProcessMessage, bool,void* pServer, HSteamPipe hSteamPipe,
               CUtlBuffer* pRead, CUtlBuffer* pWrite)
     {
-        const IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);
+        // handle handshake messages
+        HandleHandshake(pServer, hSteamPipe, pRead);
+
+        IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);
         // If we didn't find a handler for this message, just pass through to the original function.
-        if(!dispatch.enabled())
-            return oIPCProcessMessage(pServer, hSteamPipe, pRead, pWrite);
+        if(!dispatch.enabled()) return oIPCProcessMessage(pServer, hSteamPipe, pRead, pWrite);
 
         // If we did find a handler, run the pre-handler
         if (dispatch.handler->pre)

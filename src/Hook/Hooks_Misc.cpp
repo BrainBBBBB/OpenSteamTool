@@ -1,6 +1,6 @@
 #include "Hooks_Misc.h"
 #include "HookMacros.h"
-#include "Utils/VehCommon.h"
+#include "Utils/HookSupport/VehCommon.h"
 #include "dllmain.h"
 
 namespace {
@@ -23,7 +23,7 @@ namespace {
     //                    pGameID, ...)
     // arg1=pCUser, arg2=pExePath, arg3=pCommandLine, arg4=pWorkingDir
     // arg5=pGameID (CGameID*; low 24 bits = AppId)
-    static void OnSpawnProcessHit(PCONTEXT ctx, const VehCommon::Int3Site& /*site*/) {
+    static void OnSpawnProcessHit(OSTPlatform::Trap::Context& ctx, const VehCommon::Int3Site& /*site*/) {
         CGameID* pGameID = VehCommon::GetArg<CGameID*>(ctx, 5);
         AppId_t appId = static_cast<AppId_t>(pGameID->AppID(true));
         const char* cmdLine = VehCommon::GetArg<const char*>(ctx, 3);
@@ -130,7 +130,7 @@ namespace Hooks_Misc {
         if (!appid) {
             LOG_MISC_TRACE("GetAppIDForCurrentPipeWrap: AppId=0(Not GamePipe)");
         } else {
-            LOG_MISC_DEBUG("GetAppIDForCurrentPipeWrap: AppId={}", appid);
+            LOG_MISC_TRACE("GetAppIDForCurrentPipeWrap: AppId={}", appid);
         }
         return appid;
     }

@@ -1,10 +1,10 @@
 #include "Hooks_NetPacket.h"
-#include "Utils/ManifestClient.h"
+#include "Utils/SteamMetadata/ManifestClient.h"
 #include "Hooks_Misc.h"
 #include "HookMacros.h"
 #include "dllmain.h"
-#include "Utils/AppTicket.h"
-#include "Utils/Hash.h"
+#include "Utils/Tickets/AppTicket.h"
+#include "Utils/Support/FnvHash.h"
 #include <chrono>
 #include <future>
 #include <unordered_map>
@@ -398,7 +398,7 @@ namespace Hooks_NetPacket_ETicket {
         if (resp.eresult() == k_EResultOK) return;
         if (!LuaConfig::HasDepot(resp.app_id())) return;
 
-        auto ticket = AppTicket::GetEncryptedTicketFromRegistry(resp.app_id());
+        auto ticket = AppTicket::GetEncryptedTicketFromCredentialStore(resp.app_id());
         if (ticket.empty()) return;
 
         if (!resp.mutable_encrypted_app_ticket()->ParseFromArray(
