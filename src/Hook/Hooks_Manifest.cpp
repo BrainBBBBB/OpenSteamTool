@@ -42,6 +42,55 @@ namespace {
 
         if (!result) return result;
 
+        // ── Beta branch unlock ──────────────────────────────────────────
+        // For any depot belonging to an "addappid"-managed app, force
+        //   LcsRequired = 0     → Steam stops checking for a beta-access
+        //                         subscription on this depot.
+        // And clear the "betaFallback" flag so the user-selected branch
+        // (staging/development/etc.) is actually used instead of public.
+        // This makes the "Betas" dropdown in game properties functional
+        // for unowned games unlocked via Lua.
+        bool patchedBeta = false;
+        if (pDepotInfo && pDepotInfo->m_Size) {
+            for (uint32 i = 0; i < pDepotInfo->m_Size; ++i) {
+                DepotEntry& e = pDepotInfo->m_Memory.m_pMemory[i];
+                if (LuaConfig::HasDepot(e.AppId) || LuaConfig::HasDepot(e.DepotId)) {
+                    if (e.LcsRequired) {
+                        LOG_MANIFEST_INFO("BuildDepotDependency: clearing LcsRequired for depot {} (app {})",
+                            e.DepotId, e.AppId);
+                        e.LcsRequired = 0;
+                        patchedBeta = true;
+                    }
+                }
+            }
+        }
+        if (pSharedDepotInfo && pSharedDepotInfo->m_Size) {
+            for (uint32 i = 0; i < pSharedDepotInfo->m_Size; ++i) {
+                DepotEntry& e = pSharedDepotInfo->m_Memory.m_pMemory[i];
+                if (LuaConfig::HasDepot(e.AppId) || LuaConfig::HasDepot(e.DepotId)) {
+                    if (e.LcsRequired) {
+                        LOG_MANIFEST_INFO("BuildDepotDependency: clearing LcsRequired for shared depot {} (app {})",
+                            e.DepotId, e.AppId);
+                        e.LcsRequired = 0;
+                        patchedBeta = true;
+                    }
+                }
+            }
+        }
+        if (pbBetaFallback && *pbBetaFallback && LuaConfig::HasDepot(AppId)) {
+            LOG_MANIFEST_INFO("BuildDepotDependency: clearing betaFallback flag for app {}", AppId);
+            *pbBetaFallback = false;
+            patchedBeta = true;
+        }
+        (void)patchedBeta;
+
+        // ── Manifest pinning ────────────────────────────────────────────
+        // Only patch manifests when Steam reports gid=0 for a depot we
+        // have an override for.  When Steam already has a non-zero gid
+        // (for example, the user picked a beta branch and Steam has
+        // resolved that branch's manifest from appinfo), we MUST NOT
+        // overwrite it -- doing so makes Steam ask for the wrong manifest
+        // and the download silently fails.
         const auto& overrides = LuaConfig::GetManifestOverrides();
         if (overrides.empty()) return result;
 
@@ -50,6 +99,11 @@ namespace {
                 DepotEntry& e = pDepotInfo->m_Memory.m_pMemory[i];
                 auto it = overrides.find(e.DepotId);
                 if (it != overrides.end()) {
+                    if (e.ManifestGid != 0) {
+                        LOG_MANIFEST_INFO("BuildDepotDependency: skip override for depot {} -- Steam already has gid {} (likely a beta branch)",
+                            e.DepotId, e.ManifestGid);
+                        continue;
+                    }
                     // if size=0 in the override, keep the original size(affects download display but not the actual download)
                     uint64_t newSize = it->second.size ? it->second.size : e.ManifestSize;
                     LOG_MANIFEST_INFO("BuildDepotDependency: patching depot {} gid={}->{} size={}->{}",
